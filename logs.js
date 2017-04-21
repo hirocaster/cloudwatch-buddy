@@ -36,14 +36,14 @@ var CloudWatchBuddyLogs = function(cloudwatchlogs, svc, s3, options){
         });
     }
 
-    var putLogData = function() {
+    var putLogData = function(callback) {
         clearInterval(_uploadInterval);
 
         if (_debug) { console.log (new Date() + ' : CloudWatchBuddyLogs : INFO : Put logs called'); }
         // Copy the log object so logs saved during the upload process aren't lost
         _logsToSend = JSON.parse(JSON.stringify(_logs));    // copy; don't reference
         _logs = {};                                         // Reset the logs instantly so none are lost
-        
+
         // Reset the queued sizes
         for (key in _logsToSend) {
             _queuedSize[key] = 0;
@@ -102,10 +102,15 @@ var CloudWatchBuddyLogs = function(cloudwatchlogs, svc, s3, options){
             });
         }, function(err){
             if (err) {
-                
+
             }
             if (_debug) { console.log (new Date() + ' : CloudWatchBuddyLogs : INFO : Finished putting logs. Resetting timer'); }
-            setUploadInterval();    // Reset timer for next loop
+
+            if (callback) {
+              callback(err);
+            } else {
+              setUploadInterval();    // Reset timer for next loop
+            }
         });
     };
 
@@ -116,7 +121,7 @@ var CloudWatchBuddyLogs = function(cloudwatchlogs, svc, s3, options){
         for (log in logData) {
             logFile += logData[log].message + '\n';
         }
-        
+
         var timestamp = new Date();
 
         if (_s3Subfolders) {
@@ -124,7 +129,7 @@ var CloudWatchBuddyLogs = function(cloudwatchlogs, svc, s3, options){
         } else {
             var key = _s3Prefix + '/' + stream + '/' + timestamp.getFullYear() + '-' + ('0' + (timestamp.getMonth()+1)).slice(-2) + '-' + ('0' + (timestamp.getDate())).slice(-2) + '-' + ('0' + (timestamp.getHours())).slice(-2) + '-' + ('0' + (timestamp.getMinutes())).slice(-2) + '-' + ('0' + (timestamp.getSeconds())).slice(-2) + '-' + timestamp.getMilliseconds() + '.log';
         }
-        
+
         var params = {
             Bucket: _s3Bucket,
             Key: key,
@@ -186,9 +191,9 @@ var CloudWatchBuddyLogs = function(cloudwatchlogs, svc, s3, options){
             if (typeof msg === 'object') {
                 msg = JSON.stringify(msg);
             }
-            
+
             if (_debug) { console.log (new Date() + ' : CloudWatchBuddyLogs : INFO : Adding log string to local stream : ' + stream); }
-            
+
             _logs[stream].push({
                 timestamp: new Date().getTime(),
                 message: (_addTimestamp ? new Date + ' ' : '') + (_addInstanceId ? _instanceId + ' ' : '') + msg
@@ -208,11 +213,16 @@ var CloudWatchBuddyLogs = function(cloudwatchlogs, svc, s3, options){
         }
 
         _queuedSize[stream] += (26 + JSON.stringify(_logs[stream]).length * 2);    //~2 bytes per character plus 26 bytes of overhead per log
-        
+
         if (((_queuedSize[stream]) >= (_maxSize - 1000)) || _logs[stream].length > 9000) {   // Leave some room (AWS max is 10,000 logs)
             if (_debug) { console.log (new Date() + ' : CloudWatchBuddyLogs : INFO : Size of log queue for stream ' + stream + ' ' + _queuedSize[stream] + ' bytes is greater than max size of ' + _maxSize + ' bytes'); }
             putLogData();
         }
+    };
+
+    api.flush = function(callback) {
+      if (_debug) { console.log (new Date() + ' : CloudWatchBuddyLogs : INFO : Flush called, calling put logs'); }
+      putLogData(callback);
     };
 
     return api;
